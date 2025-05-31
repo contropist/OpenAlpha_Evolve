@@ -15,10 +15,15 @@ class PromptDesignerAgent(PromptDesignerInterface, BaseAgent):
     def design_initial_prompt(self) -> str:
         logger.info(f"Designing initial prompt for task: {self.task_definition.id}")
                                                            
+        expert_knowledge_section = ""
+        if self.task_definition.expert_knowledge:
+            expert_knowledge_section = f"Relevant Expert Knowledge or Context:\\n{self.task_definition.expert_knowledge}\\n\\n"
+
         prompt = (
-            f"You are an expert Python programmer. Your task is to write a Python function based on the following specifications.\n\n"
-            f"Task Description: {self.task_definition.description}\n\n"
-            f"Function to Implement: `{self.task_definition.function_name_to_evolve}`\n\n"
+            f"You are an expert Python programmer. Your task is to write a Python function based on the following specifications.\\n\\n"
+            f"Task Description: {self.task_definition.description}\\n\\n"
+            f"{expert_knowledge_section}"
+            f"Function to Implement: `{self.task_definition.function_name_to_evolve}`\\n\\n"
             f"Input/Output Examples:\n"
                                          
             f"{self._format_input_output_examples()}\n\n"
@@ -33,14 +38,29 @@ class PromptDesignerAgent(PromptDesignerInterface, BaseAgent):
         return prompt
 
     def _format_input_output_examples(self) -> str:
-        if not self.task_definition.input_output_examples:
+        """Format input/output examples for the prompt."""
+        examples = []
+        
+        # YAML format with tests
+        if self.task_definition.tests:
+            for test_group in self.task_definition.tests:
+                for test_case in test_group['test_cases']:
+                    if 'output' in test_case:
+                        examples.append(f"Input: {test_case['input']}\nOutput: {test_case['output']}")
+                    elif 'validation_func' in test_case:
+                        examples.append(f"Input: {test_case['input']}\nValidation: {test_case['validation_func']}")
+        
+        # legacy format with input_output_examples
+        elif self.task_definition.input_output_examples:
+            for example in self.task_definition.input_output_examples:
+                input_str = str(example.get('input'))
+                output_str = str(example.get('output'))
+                examples.append(f"Input: {input_str}\nOutput: {output_str}")
+        
+        if not examples:
             return "No input/output examples provided."
-        formatted_examples = []
-        for i, example in enumerate(self.task_definition.input_output_examples):
-            input_str = str(example.get('input'))
-            output_str = str(example.get('output'))
-            formatted_examples.append(f"Example {i+1}:\n  Input: {input_str}\n  Expected Output: {output_str}")
-        return "\n".join(formatted_examples)
+        
+        return "\n\n".join(examples)
 
     def _format_evaluation_feedback(self, program: Program, evaluation_feedback: Optional[Dict[str, Any]]) -> str:
         if not evaluation_feedback:
@@ -75,8 +95,12 @@ class PromptDesignerAgent(PromptDesignerInterface, BaseAgent):
 
     def design_mutation_prompt(self, program: Program, evaluation_feedback: Optional[Dict[str, Any]] = None) -> str:
         logger.info(f"Designing mutation prompt for program: {program.id} (Generation: {program.generation})")
-        logger.debug(f"Parent program code (to be mutated):\n{program.code}")
+        logger.debug(f"Parent program code (to be mutated):\\n{program.code}")
         
+        expert_knowledge_section = ""
+        if self.task_definition.expert_knowledge:
+            expert_knowledge_section = f"Relevant Expert Knowledge or Context (applies to the overall task):\\n{self.task_definition.expert_knowledge}\\n\\n"
+
         feedback_summary = self._format_evaluation_feedback(program, evaluation_feedback)
         logger.debug(f"Formatted evaluation feedback for prompt:\n{feedback_summary}")
 
@@ -96,9 +120,10 @@ class PromptDesignerAgent(PromptDesignerInterface, BaseAgent):
         )
 
         prompt = (
-            f"You are an expert Python programmer. Your task is to improve an existing Python function based on its previous performance and the overall goal.\n\n"
-            f"Overall Task Description: {self.task_definition.description}\n\n"
-            f"Function to Improve: `{self.task_definition.function_name_to_evolve}`\n\n"
+            f"You are an expert Python programmer. Your task is to improve an existing Python function based on its previous performance and the overall goal.\\n\\n"
+            f"Overall Task Description: {self.task_definition.description}\\n\\n"
+            f"{expert_knowledge_section}"
+            f"Function to Improve: `{self.task_definition.function_name_to_evolve}`\\n\\n"
             f"Allowed Standard Library Imports: {self.task_definition.allowed_imports}. Do not use other external libraries or packages.\n\n"
             f"Current Code (Version from Generation {program.generation}):\n"
             f"```python\n{program.code}\n```\n\n"
@@ -114,7 +139,12 @@ class PromptDesignerAgent(PromptDesignerInterface, BaseAgent):
 
     def design_bug_fix_prompt(self, program: Program, error_message: str, execution_output: Optional[str] = None) -> str:
         logger.info(f"Designing bug-fix prompt for program: {program.id} (Generation: {program.generation})")
-        logger.debug(f"Buggy program code:\n{program.code}")
+        logger.debug(f"Buggy program code:\\n{program.code}")
+        
+        expert_knowledge_section = ""
+        if self.task_definition.expert_knowledge:
+            expert_knowledge_section = f"Relevant Expert Knowledge or Context (applies to the overall task):\\n{self.task_definition.expert_knowledge}\\n\\n"
+
         logger.debug(f"Primary error message: {error_message}")
         if execution_output:
             logger.debug(f"Additional execution output (stdout/stderr): {execution_output}")
@@ -135,9 +165,10 @@ class PromptDesignerAgent(PromptDesignerInterface, BaseAgent):
         )
 
         prompt = (
-            f"You are an expert Python programmer. Your task is to fix a bug in an existing Python function.\n\n"
-            f"Overall Task Description: {self.task_definition.description}\n\n"
-            f"Function to Fix: `{self.task_definition.function_name_to_evolve}`\n\n"
+            f"You are an expert Python programmer. Your task is to fix a bug in an existing Python function.\\n\\n"
+            f"Overall Task Description: {self.task_definition.description}\\n\\n"
+            f"{expert_knowledge_section}"
+            f"Function to Fix: `{self.task_definition.function_name_to_evolve}`\\n\\n"
             f"Allowed Standard Library Imports: {self.task_definition.allowed_imports}. Do not use other external libraries or packages.\n\n"
             f"Buggy Code (Version from Generation {program.generation}):\n"
             f"```python\n{program.code}\n```\n\n"

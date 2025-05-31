@@ -81,20 +81,15 @@ OpenAlpha_Evolve employs a modular, agent-based architecture to orchestrate an e
 
 ```text
 ./
-├── agents/                  # Contains the core intelligent agents responsible for different parts of the evolutionary process. Each agent is in its own subdirectory.
-│   ├── code_generator/      # Agent responsible for generating code using LLMs.
-│   ├── database_agent/      # Agent for managing the storage and retrieval of programs and their metadata.
-│   ├── evaluator_agent/     # Agent that evaluates the generated code for syntax, execution, and fitness.
-│   ├── prompt_designer/     # Agent that crafts prompts for the LLM for initial generation, mutation, and bug fixing.
-│   ├── selection_controller/  # Agent that implements the selection strategy for parent and survivor programs.
-│   ├── task_manager/        # Agent that orchestrates the overall evolutionary loop and coordinates other agents.
-│   ├── rl_finetuner/        # Placeholder for a future Reinforcement Learning Fine-Tuner agent to optimize prompts.
-│   └── monitoring_agent/    # Placeholder for a future Monitoring Agent to track and visualize the process.
+├── code_generator/      # Agent responsible for generating code using LLMs.
+├── database_agent/      # Agent for managing the storage and retrieval of programs and their metadata.
+├── evaluator_agent/     # Agent that evaluates the generated code for syntax, execution, and fitness.
+├── prompt_designer/     # Agent that crafts prompts for the LLM for initial generation, mutation, and bug fixing.
+├── selection_controller/  # Agent that implements the selection strategy for parent and survivor programs.
+├── task_manager/        # Agent that orchestrates the overall evolutionary loop and coordinates other agents.
 ├── config/                  # Holds configuration files, primarily `settings.py` for system parameters and API keys.
 ├── core/                    # Defines core data structures and interfaces, like `Program` and `TaskDefinition`.
-├── utils/                   # Contains utility functions and helper classes used across the project (currently minimal).
-├── tests/                   # Includes unit and integration tests to ensure code quality and correctness (placeholders, to be expanded).
-├── scripts/                 # Stores helper scripts for various tasks, such as generating diagrams or reports.
+├── tests/                   # Includes unit and integration tests to ensure code quality and correctness.
 ├── main.py                  # The main entry point to run the OpenAlpha_Evolve system and start an evolutionary run.
 ├── requirements.txt         # Lists all Python package dependencies required to run the project.
 ├── .env.example             # An example file showing the environment variables needed, such as API keys. Copy this to `.env` and fill in your values.
@@ -137,19 +132,39 @@ OpenAlpha_Evolve employs a modular, agent-based architecture to orchestrate an e
         cp .env_example .env
         ```
 
+    #### LLM Configuration
+    Google Cloud authentication (e.g., via Application Default Credentials (ADC) or service account keys pointed to by `GOOGLE_APPLICATION_CREDENTIALS`) is a supported method for using Google's LLMs.
 
-### LLM Configuration
+    To set up your environment variables for Google Cloud, you can use one of the following methods. These should be added to your `.env` file:
 
-
-
-8.  **Run OpenAlpha_Evolve!**
-    The `main.py` file is configured with an example task (Dijkstra's algorithm). To run it:
     ```bash
-    python -m main
+    # For Google Cloud (Vertex AI / AI Studio)
+    # Option 1: Using Application Default Credentials (ADC)
+    # Ensure you have authenticated via gcloud CLI:
+    # gcloud auth application-default login
+    # Or set the GOOGLE_APPLICATION_CREDENTIALS environment variable:
+    # GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/service-account-key.json"
+
+    # Option 2: Directly using an API Key for specific Google services (e.g., Gemini API)
+    # GEMINI_API_KEY="your_gemini_api_key"
+    ```
+
+    This project uses LiteLLM to interface with various LLM providers. For providers other than Google Cloud (e.g., OpenAI, Anthropic, Cohere), please refer to the [LiteLLM documentation](https://docs.litellm.ai/docs/providers) for the specific environment variables required. Common examples include:
+    ```bash
+    # OPENAI_API_KEY="your_openai_api_key"
+    # ANTHROPIC_API_KEY="your_anthropic_api_key"
+    # COHERE_API_KEY="your_cohere_api_key"
+    ```
+    Add the necessary API key variables for your chosen LLM provider(s) to your `.env` file.
+
+6.  **Run OpenAlpha_Evolve!**
+    Run the example task (Dijkstra's algorithm) with:
+    ```bash
+    python -m main examples/shortest_path.yaml
     ```
     Watch the logs in your terminal to see the evolutionary process unfold! Log files are also saved to `alpha_evolve.log` (by default).
 
-8.  **Launch the Gradio Web Interface**
+7.  **Launch the Gradio Web Interface**
     Interact with the system via the web UI. To start the Gradio app:
     ```bash
     python app.py
@@ -160,67 +175,72 @@ OpenAlpha_Evolve employs a modular, agent-based architecture to orchestrate an e
 
 ## 💡 Defining Your Own Algorithmic Quests!
 
-Want to challenge OpenAlpha_Evolve with a new problem? It's easy:
+Want to challenge OpenAlpha_Evolve with a new problem? It's easy! You can define your tasks in two ways:
 
-1.  **Open `main.py`** (or your custom script where you define tasks).
-2.  **Modify or create a `TaskDefinition` object**:
-    *   `id`: A unique string identifier for your task (e.g., "sort_list_task", "find_max_with_bound_task").
-    *   `description`: A clear, detailed natural language description of the problem. This is crucial for the LLM to understand what to do. Be specific about function names, expected behavior, and constraints.
-    *   `function_name_to_evolve`: The name of the Python function the agent should try to create/evolve (e.g., "custom_sort", "find_max_above_threshold").
-    *   `input_output_examples`: A list of dictionaries, each containing an `input` and the corresponding expected `output`. These are vital for evaluation.
-        *   The `input` field for each example should be a list, where each element of the list corresponds to an argument for your function. If your function takes a single argument, this will be a list containing that one argument. For functions with multiple arguments, the list will contain all arguments in the correct order (e.g., `input=[[1, 2, 3], 0]` for a function `my_func(list_arg, threshold_arg)`).
-        *   For numerical problems requiring positive or negative infinity, you can use `float('inf')` or `float('-inf')` directly in your Python code when defining these examples. The system's evaluation harness is designed to correctly serialize and deserialize these special float values. See the example below.
-    *   `allowed_imports`: Specify a list of Python standard libraries that the generated code is allowed to import (e.g., `["heapq", "math", "sys"]`). This helps guide the LLM and can be important for the execution sandbox.
-    *   (Optional) `evaluation_criteria`: Define how success is measured (currently primarily driven by correctness based on test cases).
-    *   (Optional) `initial_code_prompt`: Override the default initial prompt if you need more specific instructions for the first code generation attempt.
+### 1. Using YAML Files (Recommended)
 
-3.  **Run the agent** with your new or modified task definition.
+Create a YAML file in the `examples` directory with the following structure:
 
-The quality of your `description` and the comprehensiveness of your `input_output_examples` significantly impact the agent's success!
+```yaml
+task_id: "your_task_id"
+task_description: |
+  Your detailed problem description here.
+  Be specific about function names, expected behavior, and constraints.
+function_name: "your_function_name"
+allowed_imports: ["module1", "module2"]
 
-### Example: TaskDefinition with `float('inf')`
+tests:
+  - description: "Test group description" # Describes a group of related tests
+    name: "Test group name" # A name for this test group
+    test_cases: # This should be a list of individual test cases
+      - input: [arg1, arg2]  # First test case
+        output: expected_output # Expected result for this input
+        # Each test case uses either 'output' for direct comparison
+        # or 'validation_func' for more complex validation.
+      - input: [arg_for_validation_func_1, arg_for_validation_func_2] # Second test case
+        validation_func: |
+          def validate(output_from_function):
+              # Custom validation logic for this specific test case's output
+              # For example, check if output is within a certain range,
+              # or if it has specific properties.
+              return isinstance(output_from_function, bool) and output_from_function is True
+```
 
-Here's a conceptual example of how you might define a task that requires the use of `float('-inf')` as an initial comparison point for finding a maximum value within a certain range.
+See the example in `examples/shortest_path.yaml`
+
+### 2. Using Python Code (Legacy)
+
+You can still define tasks programmatically using the `TaskDefinition` class:
 
 ```python
 from core.task_definition import TaskDefinition
 
-find_max_task = TaskDefinition(
-    id="find_max_in_list_with_lower_bound",
-    description="Write a Python function called 'find_max_with_bound' that takes a list of numbers and a lower bound. "
-                "The function should return the largest number in the list that is greater than or equal to the lower bound. "
-                "If no such number exists, it should return float('-inf').",
-    function_name_to_evolve="find_max_with_bound",
+task = TaskDefinition(
+    id="your_task_id",
+    description="Your detailed problem description",
+    function_name_to_evolve="your_function_name",
     input_output_examples=[
-        {"input": [[1, 5, 2, 8, 3, 10], 3], "output": 10},
-        {"input": [[-1, -5, -2, -8], 0], "output": float('-inf')},
-        {"input": [[10, 20, 30], 10], "output": 30},
-        {"input": [[5, 15, 25], 30], "output": float('-inf')},
-        {"input": [[4, 8, 2], float('-inf')], "output": 8}, # Using -inf as a bound
-        {"input": [[], 5], "output": float('-inf')}, # Empty list case
+        {"input": [arg1, arg2], "output": expected_output},
+        # More examples...
     ],
-    allowed_imports=["math"] # Allow 'math' if needed, though float('-inf') is built-in
+    allowed_imports=["module1", "module2"]
 )
-
-# To use this task, you would pass `find_max_task` to the TaskManagerAgent.
-# Note: float('inf') and float('-inf') are used directly in the Python list.
-# The system will handle their JSON serialization/deserialization during evaluation.
 ```
 
 ### Best Practices for Task Definition
 
 Crafting effective task definitions is key to guiding OpenAlpha_Evolve successfully. Consider these tips:
 
-*   **Be Clear and Unambiguous**: Write task descriptions as if you're explaining the problem to another developer. Avoid jargon where possible, or explain it clearly. The more precise your language, the better the LLM can interpret your intent.
-*   **Provide Diverse and Comprehensive Examples**: Your `input_output_examples` are the primary way the agent verifies its generated code.
-    *   Include typical use cases.
-    *   Cover edge cases (e.g., empty lists, zero values, very large or small numbers, `None` inputs if applicable).
-    *   Include examples that test different logical paths in the expected solution.
-    *   Ensure the outputs are correct for each input.
-*   **Start Simple, Then Increase Complexity**: If you have a complex problem, consider breaking it down or starting with a simpler version. Once the agent can solve the simpler task, you can gradually add more constraints or features to the description and examples. This iterative approach can be more effective than starting with a highly complex definition.
-*   **Specify Constraints and Edge Cases in the Description**: Don't rely solely on examples to convey all requirements. If there are specific constraints (e.g., "the input list will always contain positive integers," "the function should handle lists up to 10,000 elements efficiently") or known edge cases that need special handling, mention them explicitly in the `description`.
-*   **Define Expected Function Signature**: Clearly state the expected function name (`function_name_to_evolve`) and the nature of its parameters in the `description`. This helps the LLM generate code that matches your evaluation setup.
-*   **Iterate and Refine**: Your first task definition might not be perfect. If the agent struggles or produces incorrect solutions, review your description and examples. Are they clear? Are there any ambiguities? Could more examples help? Iteratively refine your task definition based on the agent's performance.
+*   **Be Clear and Unambiguous**: Write task descriptions as if you're explaining the problem to another developer. Avoid jargon where possible, or explain it clearly.
+*   **Provide Diverse and Comprehensive Examples**: Your test cases are the primary way the agent verifies its generated code.
+    *   Include typical use cases
+    *   Cover edge cases (empty inputs, boundary values, etc.)
+    *   Include examples that test different logical paths
+    *   Use validation functions for complex checks
+*   **Start Simple, Then Increase Complexity**: Break down complex problems into simpler versions first.
+*   **Specify Constraints and Edge Cases**: Mention specific constraints and edge cases in the description.
+*   **Define Expected Function Signature**: Clearly state the expected function name and parameters.
+*   **Iterate and Refine**: Review and refine your task definition based on the agent's performance.
 
 ---
 

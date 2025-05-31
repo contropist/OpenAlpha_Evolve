@@ -31,7 +31,7 @@ class TestEvaluatorAgentDockerExecution(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.agent = EvaluatorAgent()
-        self.program = Program(id="test_prog", code="def solve():\n  return 42", version=1, task_id="test_task", parent_id=None, fitness_scores={})
+        self.program = Program(id="test_prog", code="def solve():\n  return 42", parent_id=None, fitness_scores={})
         self.task_definition = TaskDefinition(
             id="test_task",
             description="Test task",
@@ -137,7 +137,8 @@ class TestEvaluatorAgentDockerExecution(unittest.IsolatedAsyncioTestCase):
     async def test_execute_code_safely_timeout(self, mock_create_subprocess_exec):
         # --- Test Case: Timeout ---
         # Simulate timeout on the initial 'docker run' command
-        mock_proc_docker_run = create_mock_subprocess("", "", 0, communicate_raises=asyncio.TimeoutError("Simulated timeout"))
+        # The process is still running when timeout occurs, so returncode should be None
+        mock_proc_docker_run = create_mock_subprocess("", "", None, communicate_raises=asyncio.TimeoutError("Simulated timeout"))
         
         # Mocks for subsequent 'docker stop' and 'docker kill' attempts
         mock_proc_docker_stop = create_mock_subprocess("container_id_stopped", "", 0) # stdout, stderr, returncode
@@ -204,14 +205,14 @@ class TestEvaluatorAgentDockerExecution(unittest.IsolatedAsyncioTestCase):
     @patch('evaluator_agent.agent.EvaluatorAgent._execute_code_safely', new_callable=AsyncMock)
     async def test_evaluate_program_failed_evaluation_due_to_error(self, mock_execute_code_safely):
         # --- Test Case: Failed full evaluation (script error) ---
-        mock_execute_code_safely.return_value = (None, "Execution Error: Script crashed badly")
+        mock_execute_code_safely.return_value = (None, "Script crashed badly")
 
         evaluated_program = await self.agent.evaluate_program(self.program, self.task_definition)
 
         self.assertEqual(evaluated_program.status, "failed_evaluation")
         self.assertEqual(evaluated_program.fitness_scores["correctness"], 0.0)
         # passed_tests and total_tests might not be set or be 0 if execution fails before assessment
-        self.assertIn("Execution Error: Script crashed badly", evaluated_program.errors)
+        self.assertIn("Execution Error at Level 0 ('default_level'): Script crashed badly", evaluated_program.errors)
 
     @patch('evaluator_agent.agent.EvaluatorAgent._execute_code_safely', new_callable=AsyncMock)
     async def test_evaluate_program_failed_evaluation_due_to_incorrect_output(self, mock_execute_code_safely):
@@ -228,7 +229,73 @@ class TestEvaluatorAgentDockerExecution(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(evaluated_program.fitness_scores["correctness"], 0.0)
         self.assertEqual(evaluated_program.fitness_scores["passed_tests"], 0.0)
         self.assertEqual(evaluated_program.fitness_scores["total_tests"], 1.0)
-        self.assertIn("Failed 1 out of 1 test cases.", evaluated_program.errors)
+        self.assertIn("Failed 1 of 1 tests at Level 0 ('default_level').", evaluated_program.errors)
+
+    @patch('evaluator_agent.agent.EvaluatorAgent._execute_code_safely', new_callable=AsyncMock)
+    async def test_evaluate_program_with_validation_function(self, mock_execute_code_safely):
+        # --- Test Case: Evaluation with validation function ---
+        expected_script_output = {
+            "test_outputs": [{"test_case_id": 0, "output": 15, "runtime_ms": 10.0, "status": "success"}],
+            "average_runtime_ms": 10.0
+        }
+        mock_execute_code_safely.return_value = (expected_script_output, None)
+
+        # Create a task definition with a validation function
+        task_with_validation = TaskDefinition(
+            id="test_task_validation",
+            description="Test task with validation function",
+            function_name_to_evolve="test_function",
+            input_output_examples=[
+                {
+                    "input": [10],
+                    "validation_func": """
+def validate(input):
+    return input > 10
+"""
+                }
+            ]
+        )
+
+        evaluated_program = await self.agent.evaluate_program(self.program, task_with_validation)
+
+        self.assertEqual(evaluated_program.status, "evaluated")
+        self.assertEqual(evaluated_program.fitness_scores["correctness"], 1.0)
+        self.assertEqual(evaluated_program.fitness_scores["passed_tests"], 1.0)
+        self.assertEqual(evaluated_program.fitness_scores["total_tests"], 1.0)
+        self.assertEqual(len(evaluated_program.errors), 0)
+
+    @patch('evaluator_agent.agent.EvaluatorAgent._execute_code_safely', new_callable=AsyncMock)
+    async def test_evaluate_program_with_failed_validation(self, mock_execute_code_safely):
+        # --- Test Case: Failed validation function ---
+        expected_script_output = {
+            "test_outputs": [{"test_case_id": 0, "output": 5, "runtime_ms": 10.0, "status": "success"}],
+            "average_runtime_ms": 10.0
+        }
+        mock_execute_code_safely.return_value = (expected_script_output, None)
+
+        # Create a task definition with a validation function
+        task_with_validation = TaskDefinition(
+            id="test_task_validation_fail",
+            description="Test task with failing validation function",
+            function_name_to_evolve="test_function",
+            input_output_examples=[
+                {
+                    "input": [10],
+                    "validation_func": """
+def validate(input):
+    return input > 10
+"""
+                }
+            ]
+        )
+
+        evaluated_program = await self.agent.evaluate_program(self.program, task_with_validation)
+
+        self.assertEqual(evaluated_program.status, "failed_evaluation")
+        self.assertEqual(evaluated_program.fitness_scores["correctness"], 0.0)
+        self.assertEqual(evaluated_program.fitness_scores["passed_tests"], 0.0)
+        self.assertEqual(evaluated_program.fitness_scores["total_tests"], 1.0)
+        self.assertIn("Failed 1 of 1 tests at Level 0 ('default_level').", evaluated_program.errors)
 
 
 if __name__ == '__main__':
